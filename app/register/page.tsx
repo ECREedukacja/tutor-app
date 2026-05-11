@@ -65,6 +65,19 @@ export default function RegisterPage() {
     setSuccess(true)
   }
 
+  const signUpWithGoogle = async () => {
+    setError(null)
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+    if (oauthError) {
+      setError(oauthError.message)
+    }
+  }
+
   const oauthSoon = () => {
     setOauthNote('Wkrótce dostępne')
     setTimeout(() => setOauthNote(null), 2500)
@@ -209,7 +222,7 @@ export default function RegisterPage() {
         <div className="space-y-2">
           <button
             type="button"
-            onClick={oauthSoon}
+            onClick={signUpWithGoogle}
             className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             Zarejestruj się przez Google

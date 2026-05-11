@@ -34,6 +34,19 @@ export default function LoginPage() {
     router.refresh()
   }
 
+  const signInWithGoogle = async () => {
+    setError(null)
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+    if (oauthError) {
+      setError(oauthError.message)
+    }
+  }
+
   const oauthSoon = () => {
     setOauthNote('Wkrótce dostępne')
     setTimeout(() => setOauthNote(null), 2500)
@@ -107,7 +120,7 @@ export default function LoginPage() {
         <div className="space-y-2">
           <button
             type="button"
-            onClick={oauthSoon}
+            onClick={signInWithGoogle}
             className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             Zaloguj się przez Google
