@@ -1,0 +1,75 @@
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { logout } from './actions'
+import { DashboardNav } from './nav'
+
+// Layout zawiera licznik oczekujących próśb — musi być policzony za każdym
+// renderem; bez force-dynamic Next cache'uje RSC payload layoutu i badge
+// pokazuje stary stan przy nawigacji client-side.
+export const dynamic = 'force-dynamic'
+
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) redirect('/login')
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('first_name, last_name, role')
+    .eq('id', user.id)
+    .single()
+
+  const role = profile?.role ?? 'student'
+  const displayName =
+    profile?.first_name?.trim() ||
+    user.email?.split('@')[0] ||
+    'Użytkownik'
+
+  let pendingCount = 0
+  if (role === 'teacher') {
+    const { count } = await supabase
+      .from('student_teacher_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('teacher_id', user.id)
+      .eq('status', 'pending')
+    pendingCount = count ?? 0
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
+          <Link
+            href="/dashboard"
+            className="text-lg font-semibold tracking-tight text-slate-900 transition hover:text-indigo-600"
+          >
+            Tutor App
+          </Link>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-sm text-slate-600 sm:inline">
+              {displayName}
+            </span>
+            <form action={logout}>
+              <button
+                type="submit"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Wyloguj się
+              </button>
+            </form>
+          </div>
+        </div>
+        <DashboardNav role={role} pendingCount={pendingCount} />
+      </header>
+      <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+    </div>
+  )
+}
