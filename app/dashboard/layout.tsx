@@ -43,6 +43,23 @@ export default async function DashboardLayout({
     pendingCount = count ?? 0
   }
 
+  // Liczba oczekujących propozycji do akceptacji (od drugiej strony pary).
+  // Dla nauczyciela: propozycje wysłane przez ucznia. Dla ucznia: propozycje
+  // wysłane przez nauczyciela.
+  //
+  // Używamy fetchu id-ów + .length zamiast `count: 'exact', head: true`, bo
+  // kombinacja head:true + .neq() + RLS bywa zawodna (planner czasem zwraca
+  // 0 mimo widocznych wierszy). Liczba pending propozycji per użytkownik jest
+  // znikoma, więc koszt pobrania kilku id-ów jest pomijalny.
+  const partyColumn = role === 'teacher' ? 'teacher_id' : 'student_id'
+  const { data: pendingProposals } = await supabase
+    .from('lesson_proposals')
+    .select('id')
+    .eq(partyColumn, user.id)
+    .eq('status', 'pending')
+    .neq('proposer_id', user.id)
+  const proposalsPending = pendingProposals?.length ?? 0
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
@@ -67,7 +84,11 @@ export default async function DashboardLayout({
             </form>
           </div>
         </div>
-        <DashboardNav role={role} pendingCount={pendingCount} />
+        <DashboardNav
+          role={role}
+          pendingCount={pendingCount}
+          proposalsPending={proposalsPending}
+        />
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
     </div>

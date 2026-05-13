@@ -8,14 +8,21 @@ type Role = 'student' | 'teacher'
 export function DashboardNav({
   role,
   pendingCount,
+  proposalsPending,
 }: {
   role: Role
   pendingCount: number
+  proposalsPending: number
 }) {
   const pathname = usePathname()
 
   const links: { href: string; label: string; badge?: number }[] = [
     { href: '/dashboard', label: 'Dashboard' },
+    {
+      href: '/dashboard/schedule',
+      label: 'Terminarz',
+      badge: proposalsPending,
+    },
   ]
   if (role === 'student') {
     links.push({ href: '/dashboard/teachers', label: 'Moi nauczyciele' })
@@ -26,6 +33,7 @@ export function DashboardNav({
       badge: pendingCount,
     })
   }
+  links.push({ href: '/dashboard/profile', label: 'Mój profil' })
 
   return (
     <nav className="border-t border-slate-100">
