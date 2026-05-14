@@ -138,6 +138,41 @@ export async function respondToRequest(requestId: string, accept: boolean) {
   revalidatePath('/dashboard', 'layout')
 }
 
+// ----------------------------------------------------------------------------
+// Powiadomienia — oznaczanie jako przeczytane
+// ----------------------------------------------------------------------------
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) throw new Error('Nie jesteś zalogowany.')
+
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', notificationId)
+    .eq('user_id', user.id)
+    .is('read_at', null)
+  if (error) throw new Error(error.message)
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) throw new Error('Nie jesteś zalogowany.')
+
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('user_id', user.id)
+    .is('read_at', null)
+  if (error) throw new Error(error.message)
+}
+
 // Helper: pobiera e-maile dla listy user_id z auth.users (wymaga service_role).
 export async function fetchEmailsByIds(ids: string[]): Promise<Record<string, string>> {
   if (ids.length === 0) return {}

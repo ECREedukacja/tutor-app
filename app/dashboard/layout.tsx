@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { logout } from './actions'
 import { DashboardNav } from './nav'
+import { Notifications } from './notifications'
 
 // Layout zawiera licznik oczekujących próśb — musi być policzony za każdym
 // renderem; bez force-dynamic Next cache'uje RSC payload layoutu i badge
@@ -71,6 +72,7 @@ export default async function DashboardLayout({
             Tutor App
           </Link>
           <div className="flex items-center gap-3">
+            <Notifications userId={user.id} />
             <span className="hidden text-sm text-slate-600 sm:inline">
               {displayName}
             </span>
