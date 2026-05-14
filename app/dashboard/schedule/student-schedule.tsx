@@ -45,6 +45,7 @@ type Lesson = {
   start_at: string
   duration_minutes: number
   mode: LessonMode
+  recurring_lesson_id: string | null
 }
 
 const RESCHEDULE_BY_STUDENT_MIN_MS = 24 * 60 * 60 * 1000
@@ -135,7 +136,9 @@ export function StudentSchedule({
         .order('start_at'),
       supabase
         .from('lessons')
-        .select('id, teacher_id, start_at, duration_minutes, mode')
+        .select(
+          'id, teacher_id, start_at, duration_minutes, mode, recurring_lesson_id',
+        )
         .eq('student_id', studentId)
         .eq('status', 'scheduled')
         .gte('start_at', weekStart.toISOString())
@@ -245,6 +248,15 @@ export function StudentSchedule({
             <p className="text-[11px] font-semibold uppercase tracking-wide opacity-90">
               <span aria-hidden>{modeIcon(l.mode)}</span> Zapisany ·{' '}
               {t ? t.last_name : ''}
+              {l.recurring_lesson_id ? (
+                <span
+                  aria-label="Lekcja cykliczna"
+                  title="Lekcja cykliczna"
+                  className="ml-1"
+                >
+                  🔁
+                </span>
+              ) : null}
             </p>
             <p className="text-sm font-medium tabular-nums">
               {formatTime(d)}–{formatTime(addMinutes(d, LESSON_MINUTES))}
@@ -578,6 +590,9 @@ function LessonModal({
   const msUntil = d.getTime() - Date.now()
   const canReschedule = msUntil > RESCHEDULE_BY_STUDENT_MIN_MS
   const canCancel = msUntil > CANCEL_BY_STUDENT_MIN_MS
+  const teacherFullName = teacher
+    ? `${teacher.first_name} ${teacher.last_name}`
+    : 'nauczyciela'
   return (
     <ModalShell title="Moja lekcja" onClose={onClose}>
       <div className="space-y-2 text-sm text-slate-900">
@@ -602,6 +617,15 @@ function LessonModal({
               : ''}
           </span>
         </p>
+        {lesson.recurring_lesson_id && (
+          <div className="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+            <p className="font-medium">🔁 Lekcja cykliczna z {teacherFullName}</p>
+            <p className="mt-1">
+              Każda zmiana lub odwołanie dotyczy tylko tego konkretnego terminu —
+              cykl pozostaje bez zmian.
+            </p>
+          </div>
+        )}
       </div>
       <div className="mt-5 flex flex-wrap justify-end gap-2">
         <button
@@ -615,6 +639,11 @@ function LessonModal({
           <button
             type="button"
             onClick={onCancel}
+            title={
+              lesson.recurring_lesson_id
+                ? 'Odwołanie dotyczy tylko tego terminu — cykl pozostaje bez zmian'
+                : undefined
+            }
             className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100"
           >
             Odwołaj lekcję
@@ -624,6 +653,11 @@ function LessonModal({
           <button
             type="button"
             onClick={onReschedule}
+            title={
+              lesson.recurring_lesson_id
+                ? 'Ta zmiana dotyczy tylko tego konkretnego terminu — cykl pozostaje bez zmian'
+                : undefined
+            }
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
           >
             Zaproponuj zmianę terminu
@@ -674,6 +708,11 @@ function CancelLessonConfirmModal({
           {formatDateLong(d)},{' '}
           <span className="tabular-nums">{formatTime(d)}</span>
         </p>
+        {lesson.recurring_lesson_id && (
+          <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+            🔁 Odwołanie dotyczy tylko tego terminu — cykl pozostanie bez zmian.
+          </p>
+        )}
       </div>
       {error && (
         <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -780,6 +819,12 @@ function ProposeRescheduleModal({
             {formatTime(new Date(lesson.start_at))}
           </span>
         </p>
+        {lesson.recurring_lesson_id && (
+          <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+            🔁 Ta zmiana dotyczy tylko tego konkretnego terminu, cykl pozostanie
+            bez zmian.
+          </p>
+        )}
         <p className="text-xs text-slate-500">
           Wybierz nowy termin z wolnych slotów{' '}
           {teacher ? `${teacher.first_name} ${teacher.last_name}` : 'nauczyciela'}.
