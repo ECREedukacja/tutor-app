@@ -9,10 +9,12 @@ export function DashboardNav({
   role,
   pendingCount,
   proposalsPending,
+  assignmentsPending,
 }: {
   role: Role
   pendingCount: number
   proposalsPending: number
+  assignmentsPending: number
 }) {
   const pathname = usePathname()
 
@@ -22,6 +24,11 @@ export function DashboardNav({
       href: '/dashboard/schedule',
       label: 'Terminarz',
       badge: proposalsPending,
+    },
+    {
+      href: '/dashboard/assignments',
+      label: 'Prace domowe',
+      badge: assignmentsPending,
     },
   ]
   if (role === 'student') {

@@ -61,6 +61,26 @@ export default async function DashboardLayout({
     .neq('proposer_id', user.id)
   const proposalsPending = pendingProposals?.length ?? 0
 
+  // Badge "Prace domowe":
+  //   • uczeń: prace 'sent' (jeszcze nieotworzone — czyli bez przejścia na in_progress)
+  //   • nauczyciel: prace 'submitted' (oddane, czekają na ocenę)
+  let assignmentsPending = 0
+  if (role === 'teacher') {
+    const { count } = await supabase
+      .from('assignments')
+      .select('id', { count: 'exact', head: true })
+      .eq('teacher_id', user.id)
+      .eq('status', 'submitted')
+    assignmentsPending = count ?? 0
+  } else {
+    const { count } = await supabase
+      .from('assignments')
+      .select('id', { count: 'exact', head: true })
+      .eq('student_id', user.id)
+      .eq('status', 'sent')
+    assignmentsPending = count ?? 0
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
@@ -90,6 +110,7 @@ export default async function DashboardLayout({
           role={role}
           pendingCount={pendingCount}
           proposalsPending={proposalsPending}
+          assignmentsPending={assignmentsPending}
         />
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>

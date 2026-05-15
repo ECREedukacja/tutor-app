@@ -20,6 +20,10 @@ const TYPE_ICONS: Record<string, string> = {
   lesson_rescheduled: '🔄',
   recurring_series_cancelled: '🚫',
   lesson_reminder: '⏰',
+  assignment_received: '📝',
+  assignment_submitted: '📥',
+  assignment_graded: '🎓',
+  assignment_ai_graded: '✨',
 }
 
 export type Notification = {
