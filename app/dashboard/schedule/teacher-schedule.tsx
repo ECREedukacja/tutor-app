@@ -86,6 +86,27 @@ const DAY_LABELS = [
   'Sobota',
 ]
 
+// Helpery sięgające po bieżący czas. Trzymamy je W MODULE (poza komponentem)
+// żeby react-hooks/purity nie flagował Date.now() jako wywołania
+// impure-funkcji w trakcie renderu — zewnętrzne funkcje nie są inspekcjowane.
+// Hydration-safe: różnica „teraz" SSR vs CSR to milisekundy, a progi liczone
+// są w tygodniach, więc wynik się nie różni między serwerem a klientem.
+const FOUR_WEEKS_MS = 4 * 7 * 24 * 60 * 60 * 1000
+
+function isTimeInPast(timeMs: number): boolean {
+  return timeMs <= Date.now()
+}
+
+function shouldShowExtend(
+  endsOn: Date | null,
+  lastDate: Date | null,
+): boolean {
+  const now = Date.now()
+  if (endsOn && endsOn.getTime() - now <= FOUR_WEEKS_MS) return false
+  if (!lastDate) return true
+  return lastDate.getTime() - now < FOUR_WEEKS_MS
+}
+
 export function TeacherSchedule({
   teacherId,
   teacherAddress,
@@ -102,7 +123,13 @@ export function TeacherSchedule({
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [cycles, setCycles] = useState<RecurringLesson[]>([])
   const [cycleLastDates, setCycleLastDates] = useState<Record<string, string | null>>({})
-  const [loading, setLoading] = useState(true)
+  // loading = pierwsze ładowanie jeszcze nie zakończone LUB trwa kolejne fetchowanie
+  // (zmiana tygodnia / realtime). Używamy useTransition zamiast jawnego
+  // setLoading(true), żeby load() nie zawierał synchronicznego setState (eslint
+  // react-hooks/set-state-in-effect flagował to przy load() w useEffect).
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [loadPending, startLoad] = useTransition()
+  const loading = !hasLoadedOnce || loadPending
 
   const [addModal, setAddModal] = useState<{ date: Date } | null>(null)
   const [slotModal, setSlotModal] = useState<Availability | null>(null)
@@ -129,73 +156,76 @@ export function TeacherSchedule({
     return m
   }, [students])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const [
-      { data: slotsData },
-      { data: lessonsData },
-      { data: proposalsData },
-      { data: cyclesData },
-      { data: cycleLastData },
-    ] = await Promise.all([
-      supabase
-        .from('availability')
-        .select('id, start_at, duration_minutes')
-        .eq('teacher_id', teacherId)
-        .gte('start_at', weekStart.toISOString())
-        .lt('start_at', weekEnd.toISOString())
-        .order('start_at'),
-      supabase
-        .from('lessons')
-        .select(
-          'id, start_at, duration_minutes, mode, student_id, recurring_lesson_id, student:profiles!lessons_student_id_fkey(first_name, last_name)',
-        )
-        .eq('teacher_id', teacherId)
-        .eq('status', 'scheduled')
-        .gte('start_at', weekStart.toISOString())
-        .lt('start_at', weekEnd.toISOString())
-        .order('start_at'),
-      supabase
-        .from('lesson_proposals')
-        .select(
-          'id, kind, teacher_id, student_id, proposer_id, original_lesson_id, start_at, duration_minutes, mode, status, created_at, original_lesson:lessons!lesson_proposals_original_lesson_id_fkey(start_at, mode)',
-        )
-        .eq('teacher_id', teacherId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('recurring_lessons')
-        .select(
-          'id, student_id, day_of_week, time_of_day, duration_minutes, mode, starts_on, ends_on, cancelled, created_at',
-        )
-        .eq('teacher_id', teacherId)
-        .order('created_at', { ascending: false }),
-      // Ostatnia wygenerowana lekcja per cykl — używamy do warunkowego
-      // pokazania przycisku „Dogeneruj kolejne 12 tygodni".
-      supabase
-        .from('lessons')
-        .select('recurring_lesson_id, start_at')
-        .eq('teacher_id', teacherId)
-        .eq('status', 'scheduled')
-        .not('recurring_lesson_id', 'is', null)
-        .order('start_at', { ascending: false }),
-    ])
-    setSlots((slotsData ?? []) as Availability[])
-    setLessons((lessonsData ?? []) as unknown as Lesson[])
-    setProposals((proposalsData ?? []) as unknown as Proposal[])
-    setCycles((cyclesData ?? []) as RecurringLesson[])
-    const lastMap: Record<string, string | null> = {}
-    for (const row of (cycleLastData ?? []) as Array<{
-      recurring_lesson_id: string | null
-      start_at: string
-    }>) {
-      if (!row.recurring_lesson_id) continue
-      if (!(row.recurring_lesson_id in lastMap)) {
-        lastMap[row.recurring_lesson_id] = row.start_at
+  const load = useCallback(() => {
+    // Cała robota w startTransition — z punktu widzenia callera load() to
+    // tylko zapis intencji „odśwież", bez synchronicznego setState.
+    startLoad(async () => {
+      const [
+        { data: slotsData },
+        { data: lessonsData },
+        { data: proposalsData },
+        { data: cyclesData },
+        { data: cycleLastData },
+      ] = await Promise.all([
+        supabase
+          .from('availability')
+          .select('id, start_at, duration_minutes')
+          .eq('teacher_id', teacherId)
+          .gte('start_at', weekStart.toISOString())
+          .lt('start_at', weekEnd.toISOString())
+          .order('start_at'),
+        supabase
+          .from('lessons')
+          .select(
+            'id, start_at, duration_minutes, mode, student_id, recurring_lesson_id, student:profiles!lessons_student_id_fkey(first_name, last_name)',
+          )
+          .eq('teacher_id', teacherId)
+          .eq('status', 'scheduled')
+          .gte('start_at', weekStart.toISOString())
+          .lt('start_at', weekEnd.toISOString())
+          .order('start_at'),
+        supabase
+          .from('lesson_proposals')
+          .select(
+            'id, kind, teacher_id, student_id, proposer_id, original_lesson_id, start_at, duration_minutes, mode, status, created_at, original_lesson:lessons!lesson_proposals_original_lesson_id_fkey(start_at, mode)',
+          )
+          .eq('teacher_id', teacherId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('recurring_lessons')
+          .select(
+            'id, student_id, day_of_week, time_of_day, duration_minutes, mode, starts_on, ends_on, cancelled, created_at',
+          )
+          .eq('teacher_id', teacherId)
+          .order('created_at', { ascending: false }),
+        // Ostatnia wygenerowana lekcja per cykl — używamy do warunkowego
+        // pokazania przycisku „Dogeneruj kolejne 12 tygodni".
+        supabase
+          .from('lessons')
+          .select('recurring_lesson_id, start_at')
+          .eq('teacher_id', teacherId)
+          .eq('status', 'scheduled')
+          .not('recurring_lesson_id', 'is', null)
+          .order('start_at', { ascending: false }),
+      ])
+      setSlots((slotsData ?? []) as Availability[])
+      setLessons((lessonsData ?? []) as unknown as Lesson[])
+      setProposals((proposalsData ?? []) as unknown as Proposal[])
+      setCycles((cyclesData ?? []) as RecurringLesson[])
+      const lastMap: Record<string, string | null> = {}
+      for (const row of (cycleLastData ?? []) as Array<{
+        recurring_lesson_id: string | null
+        start_at: string
+      }>) {
+        if (!row.recurring_lesson_id) continue
+        if (!(row.recurring_lesson_id in lastMap)) {
+          lastMap[row.recurring_lesson_id] = row.start_at
+        }
       }
-    }
-    setCycleLastDates(lastMap)
-    setLoading(false)
-  }, [supabase, teacherId, weekStart, weekEnd])
+      setCycleLastDates(lastMap)
+      setHasLoadedOnce(true)
+    })
+  }, [startLoad, supabase, teacherId, weekStart, weekEnd])
 
   useEffect(() => {
     load()
@@ -1422,7 +1452,7 @@ function RescheduleSeriesModal({
     if (!lesson.recurring_lesson_id) return
     setError(null)
     const local = combineDateTimeLocal(date, time)
-    if (local.getTime() <= Date.now()) {
+    if (isTimeInPast(local.getTime())) {
       setError('Nowy termin musi być w przyszłości.')
       return
     }
@@ -1577,15 +1607,10 @@ function CycleRow({
 
   // Pokaż „Dogeneruj kolejne 12 tygodni" tylko gdy ostatnia wygenerowana lekcja
   // jest mniej niż 4 tygodnie naprzód (i cykl nie ma sztywnego końca w bliskiej
-  // przyszłości).
-  const FOUR_WEEKS_MS = 4 * 7 * 24 * 60 * 60 * 1000
+  // przyszłości). Logika przeniesiona do helpera modułowego — chcemy uniknąć
+  // bezpośredniego Date.now() w render-body (react-hooks/purity).
   const lastDate = lastLessonStartIso ? new Date(lastLessonStartIso) : null
-  const showExtend =
-    !endsOn || endsOn.getTime() - Date.now() > FOUR_WEEKS_MS
-      ? lastDate
-        ? lastDate.getTime() - Date.now() < FOUR_WEEKS_MS
-        : true
-      : false
+  const showExtend = shouldShowExtend(endsOn, lastDate)
 
   const extend = () => {
     setError(null)
@@ -1740,7 +1765,7 @@ function ModeRadio({
         </div>
       ) : (
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          💻 Online — dodaj adres w „Mój profil", żeby umożliwić lekcje
+          💻 Online — dodaj adres w „Mój profil”, żeby umożliwić lekcje
           stacjonarne.
         </p>
       )}

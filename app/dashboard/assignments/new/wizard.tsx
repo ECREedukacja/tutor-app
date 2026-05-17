@@ -12,7 +12,7 @@ import {
   type GeneratedTask,
   type GenerationParams,
 } from '../actions'
-import { DIFFICULTY_LABELS, TASK_TYPE_LABELS } from '../shared'
+import { DIFFICULTY_LABELS, TASK_TYPE_LABELS, formatDateTime } from '../shared'
 
 type Student = { id: string; first_name: string; last_name: string }
 type Step = 1 | 2 | 3
@@ -579,9 +579,7 @@ export function AssignmentWizard({ students }: { students: Student[] }) {
               <li>Liczba zadań: {tasks.length}</li>
               <li>
                 Termin oddania:{' '}
-                {dueDate
-                  ? new Date(dueDate).toLocaleString('pl-PL')
-                  : 'bez terminu'}
+                {dueDate ? formatDateTime(dueDate) : 'bez terminu'}
               </li>
               <li>
                 Auto-ocena AI:{' '}

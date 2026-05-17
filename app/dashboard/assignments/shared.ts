@@ -33,21 +33,51 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   proof: 'Dowód',
 }
 
-const dateTimeFmt = new Intl.DateTimeFormat('pl-PL', {
-  dateStyle: 'short',
-  timeStyle: 'short',
+// Formattery deterministyczne — NIE używamy 'pl-PL' dateStyle, bo Node bez
+// pełnego polskiego ICU dawał inny string niż przeglądarka i hydration mismatch
+// powstawał w komponentach klienckich. Zamiast tego rozbijamy datę na cyfrowe
+// części przez Intl.DateTimeFormat('en-GB' / numeric, …) — wszystkie środowiska
+// zwracają te same cyfry — i sklejamy ręcznie do polskiego formatu.
+//
+// Strefa: Europe/Warsaw (zachowane oryginalne zachowanie — daty w tej samej TZ
+// niezależnie od TZ użytkownika).
+
+const tzPartsFmt = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Europe/Warsaw',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
 })
 
-const dateFmt = new Intl.DateTimeFormat('pl-PL', {
-  dateStyle: 'short',
-  timeZone: 'Europe/Warsaw',
-})
+type DateParts = {
+  day: string
+  month: string
+  year: string
+  hour: string
+  minute: string
+}
+
+function partsOf(iso: string): DateParts {
+  const out: Partial<DateParts> = {}
+  for (const p of tzPartsFmt.formatToParts(new Date(iso))) {
+    if (p.type === 'day') out.day = p.value
+    else if (p.type === 'month') out.month = p.value
+    else if (p.type === 'year') out.year = p.value
+    else if (p.type === 'hour') out.hour = p.value
+    else if (p.type === 'minute') out.minute = p.value
+  }
+  return out as DateParts
+}
 
 export function formatDateTime(iso: string): string {
-  return dateTimeFmt.format(new Date(iso))
+  const p = partsOf(iso)
+  return `${p.day}.${p.month}.${p.year}, ${p.hour}:${p.minute}`
 }
 
 export function formatDate(iso: string): string {
-  return dateFmt.format(new Date(iso))
+  const p = partsOf(iso)
+  return `${p.day}.${p.month}.${p.year}`
 }

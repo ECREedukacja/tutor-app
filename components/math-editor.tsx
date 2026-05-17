@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type React from 'react'
 
 // Hybrydowy edytor blokowy: tekst i wzór matematyczny jako oddzielne bloki.
 // Wzory edytuje webcomponent <math-field> z MathLive (WYSIWYG — użytkownik
@@ -27,22 +26,10 @@ import type React from 'react'
 //   • przed załadowaniem renderujemy zwykłą textareę (SSR fallback)
 
 // ----------------------------------------------------------------------------
-// TypeScript: math-field to nieznany element JSX. Deklarujemy go luźno.
+// TypeScript: deklaracja JSX dla custom-elementu <math-field> siedzi w
+// components/math-field.d.ts — eslint nie pozwala na `namespace` w .tsx,
+// ale w .d.ts już tak.
 // ----------------------------------------------------------------------------
-
-type MathFieldAttrs = React.HTMLAttributes<HTMLElement> & {
-  ref?: React.Ref<HTMLElement>
-  placeholder?: string
-  disabled?: boolean
-}
-
-declare module 'react' {
-  namespace JSX {
-    interface IntrinsicElements {
-      'math-field': MathFieldAttrs
-    }
-  }
-}
 
 // ----------------------------------------------------------------------------
 // Model danych: blok tekstu lub blok wzoru.

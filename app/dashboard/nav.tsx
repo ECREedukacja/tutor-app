@@ -10,11 +10,13 @@ export function DashboardNav({
   pendingCount,
   proposalsPending,
   assignmentsPending,
+  messagesUnread,
 }: {
   role: Role
   pendingCount: number
   proposalsPending: number
   assignmentsPending: number
+  messagesUnread: number
 }) {
   const pathname = usePathname()
 
@@ -24,6 +26,11 @@ export function DashboardNav({
       href: '/dashboard/schedule',
       label: 'Terminarz',
       badge: proposalsPending,
+    },
+    {
+      href: '/dashboard/chat',
+      label: 'Wiadomości',
+      badge: messagesUnread,
     },
     {
       href: '/dashboard/assignments',

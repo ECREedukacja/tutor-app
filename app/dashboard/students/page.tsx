@@ -94,7 +94,7 @@ export default async function StudentsPage() {
                       {r.student?.phone ? ` · ${r.student.phone}` : ''}
                     </p>
                     {r.message && (
-                      <p className="mt-2 text-sm text-slate-700">„{r.message}"</p>
+                      <p className="mt-2 text-sm text-slate-700">„{r.message}”</p>
                     )}
                     <p className="mt-1 text-xs text-slate-500">
                       {new Date(r.created_at).toLocaleDateString('pl-PL')}

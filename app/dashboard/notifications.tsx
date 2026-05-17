@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { markAllNotificationsRead, markNotificationRead } from './actions'
@@ -24,6 +24,7 @@ const TYPE_ICONS: Record<string, string> = {
   assignment_submitted: '📥',
   assignment_graded: '🎓',
   assignment_ai_graded: '✨',
+  new_message: '💬',
 }
 
 export type Notification = {
@@ -41,32 +42,92 @@ const DROPDOWN_LIMIT = 10
 const FETCH_LIMIT = 30
 const TOAST_DISMISS_MS = 5000
 
-// Polski formatter relatywnego czasu — Intl.RelativeTimeFormat + ręczny wybór
-// jednostki, żeby uniknąć "0 sekund temu" i mieć krótkie etykiety.
-const relFmt = new Intl.RelativeTimeFormat('pl-PL', { numeric: 'auto' })
+// Polski formatter relatywnego czasu — DETERMINISTYCZNY, ręczna deklinacja.
+//
+// Wcześniej używaliśmy Intl.RelativeTimeFormat('pl-PL'), ale Node bez pełnej
+// polskiej ICU dawał inny string niż przeglądarka → hydration mismatch.
+// Wartość i tak zmienia się z czasem („5 minut temu" → „6 minut temu"), więc
+// element renderujący tę funkcję wymaga suppressHydrationWarning niezależnie
+// od formattera — patrz JSX poniżej.
+
+// pluralizacja polska: 1 = pojedyncza, 2-4 (poza 12-14) = liczba mnoga "few",
+// reszta = liczba mnoga "many".
+function plPlural(n: number, one: string, few: string, many: string): string {
+  const abs = Math.abs(n)
+  if (abs === 1) return one
+  const mod10 = abs % 10
+  const mod100 = abs % 100
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
+  return many
+}
+
+function relativePast(n: number, units: [string, string, string]): string {
+  return `${n} ${plPlural(n, units[0], units[1], units[2])} temu`
+}
+function relativeFuture(n: number, units: [string, string, string]): string {
+  return `za ${n} ${plPlural(n, units[0], units[1], units[2])}`
+}
 
 function relativeTime(iso: string): string {
   const now = Date.now()
   const then = new Date(iso).getTime()
   const diffSec = Math.round((then - now) / 1000) // ujemne dla przeszłości
   const abs = Math.abs(diffSec)
-  if (abs < 60) return relFmt.format(Math.round(diffSec), 'second')
-  if (abs < 3600) return relFmt.format(Math.round(diffSec / 60), 'minute')
-  if (abs < 86400) return relFmt.format(Math.round(diffSec / 3600), 'hour')
-  if (abs < 7 * 86400) return relFmt.format(Math.round(diffSec / 86400), 'day')
-  if (abs < 30 * 86400) return relFmt.format(Math.round(diffSec / (7 * 86400)), 'week')
-  return relFmt.format(Math.round(diffSec / (30 * 86400)), 'month')
+  const past = diffSec < 0
+
+  if (abs < 10) return past ? 'przed chwilą' : 'za chwilę'
+  if (abs < 60) {
+    const n = Math.round(abs)
+    return past
+      ? relativePast(n, ['sekundę', 'sekundy', 'sekund'])
+      : relativeFuture(n, ['sekundę', 'sekundy', 'sekund'])
+  }
+  if (abs < 3600) {
+    const n = Math.round(abs / 60)
+    return past
+      ? relativePast(n, ['minutę', 'minuty', 'minut'])
+      : relativeFuture(n, ['minutę', 'minuty', 'minut'])
+  }
+  if (abs < 86400) {
+    const n = Math.round(abs / 3600)
+    return past
+      ? relativePast(n, ['godzinę', 'godziny', 'godzin'])
+      : relativeFuture(n, ['godzinę', 'godziny', 'godzin'])
+  }
+  if (abs < 7 * 86400) {
+    const n = Math.round(abs / 86400)
+    return past
+      ? relativePast(n, ['dzień', 'dni', 'dni'])
+      : relativeFuture(n, ['dzień', 'dni', 'dni'])
+  }
+  if (abs < 30 * 86400) {
+    const n = Math.round(abs / (7 * 86400))
+    return past
+      ? relativePast(n, ['tydzień', 'tygodnie', 'tygodni'])
+      : relativeFuture(n, ['tydzień', 'tygodnie', 'tygodni'])
+  }
+  const n = Math.round(abs / (30 * 86400))
+  return past
+    ? relativePast(n, ['miesiąc', 'miesiące', 'miesięcy'])
+    : relativeFuture(n, ['miesiąc', 'miesiące', 'miesięcy'])
 }
 
 export function Notifications({ userId }: { userId: string }) {
   const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
+  const pathname = usePathname()
   const [items, setItems] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
   const [toasts, setToasts] = useState<Notification[]>([])
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const initialLoadDoneRef = useRef(false)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
+  // Pathname zmieniający się w czasie używamy w callbacku realtime — ref
+  // żeby zawsze widzieć aktualny URL bez re-subskrybowania kanału.
+  const pathnameRef = useRef(pathname)
+  useEffect(() => {
+    pathnameRef.current = pathname
+  }, [pathname])
   // Polityki autoplay w przeglądarkach: dźwięk można odtworzyć dopiero po
   // pierwszej interakcji użytkownika ze stroną. Trzymamy flagę i odblokowujemy
   // <audio> krótkim play()+pause() przy pierwszym kliku/keydownie/dotknięciu.
@@ -108,6 +169,14 @@ export function Notifications({ userId }: { userId: string }) {
           // Toast + dźwięk tylko po pierwszym załadowaniu — nie wybuchamy
           // dźwiękami na "świeże" rekordy które po prostu już istniały.
           if (initialLoadDoneRef.current) {
+            // Wyciszamy toast/dźwięk dla 'new_message' gdy użytkownik jest
+            // już w sekcji czatu (zakładamy, że widzi wiadomość na ekranie).
+            // Powiadomienie i tak trafia do dzwoneczka (items) — tylko nie
+            // wyskakuje "w twarz" i nie gra.
+            const isChatNotif = n.type === 'new_message'
+            const onChat = pathnameRef.current?.startsWith('/dashboard/chat')
+            if (isChatNotif && onChat) return
+
             setToasts((prev) => [n, ...prev])
             const audio = audioRef.current
             if (audio) {
@@ -299,7 +368,13 @@ export function Notifications({ userId }: { userId: string }) {
                             {n.body}
                           </span>
                         )}
-                        <span className="mt-1 block text-[11px] text-slate-400">
+                        <span
+                          className="mt-1 block text-[11px] text-slate-400"
+                          // Wartość zmienia się z czasem (np. „5 minut temu" →
+                          // „6 minut temu") — kilka sekund między SSR a hydratacją
+                          // może trafić w granicę przedziału. Tłumimy mismatch.
+                          suppressHydrationWarning
+                        >
                           {relativeTime(n.created_at)}
                         </span>
                       </span>

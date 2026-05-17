@@ -81,6 +81,19 @@ export default async function DashboardLayout({
     assignmentsPending = count ?? 0
   }
 
+  // Badge "Wiadomości": suma nieprzeczytanych wiadomości w konwersacjach,
+  // których jesteśmy stroną. RLS na messages ogranicza do naszych konwersacji,
+  // więc filtr po sender_id != me wystarczy.
+  let messagesUnread = 0
+  {
+    const { count } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .neq('sender_id', user.id)
+      .is('read_at', null)
+    messagesUnread = count ?? 0
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
@@ -111,6 +124,7 @@ export default async function DashboardLayout({
           pendingCount={pendingCount}
           proposalsPending={proposalsPending}
           assignmentsPending={assignmentsPending}
+          messagesUnread={messagesUnread}
         />
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>

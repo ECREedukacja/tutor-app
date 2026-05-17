@@ -81,37 +81,42 @@ export function dayIndexInWeek(d: Date, weekStart: Date): number | null {
   return days
 }
 
-const dateFmtLong = new Intl.DateTimeFormat('pl-PL', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-})
-const dateFmtShort = new Intl.DateTimeFormat('pl-PL', {
-  day: 'numeric',
-  month: 'short',
-})
-const dateFmtWithWeekday = new Intl.DateTimeFormat('pl-PL', {
-  weekday: 'short',
-  day: 'numeric',
-  month: 'short',
-})
-const timeFmt = new Intl.DateTimeFormat('pl-PL', {
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-})
+// Formatery dat — DETERMINISTYCZNE, ręczne, niezależne od ICU/locale środowiska.
+//
+// Dlaczego ręcznie a nie Intl.DateTimeFormat('pl-PL', …)?
+// Node (SSR) bez pełnej polskiej ICU dawał inne stringi niż przeglądarka
+// (klient) — efekt: hydration mismatch w komponentach client. Ręczny format
+// gwarantuje, że SSR i CSR generują dokładnie te same znaki.
+//
+// Daty czytamy w STREFIE LOKALNEJ użytkownika (getDate/getMonth/...) — taka
+// była dotychczasowa semantyka kalendarza tygodniowego i zostawiamy ją.
+
+const MONTHS_GENITIVE = [
+  'stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca',
+  'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia',
+]
+const MONTHS_SHORT = [
+  'sty', 'lut', 'mar', 'kwi', 'maj', 'cze',
+  'lip', 'sie', 'wrz', 'paź', 'lis', 'gru',
+]
+// Intl pl-PL z weekday:'short' daje "pon.", "wt." itd.
+const WEEKDAYS_SHORT = ['nd.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.']
+
+function pad2(n: number): string {
+  return n < 10 ? '0' + n : String(n)
+}
 
 export function formatDateLong(d: Date): string {
-  return dateFmtLong.format(d)
+  return `${d.getDate()} ${MONTHS_GENITIVE[d.getMonth()]} ${d.getFullYear()}`
 }
 export function formatDateShort(d: Date): string {
-  return dateFmtShort.format(d)
+  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
 }
 export function formatDateWithWeekday(d: Date): string {
-  return dateFmtWithWeekday.format(d)
+  return `${WEEKDAYS_SHORT[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
 }
 export function formatTime(d: Date): string {
-  return timeFmt.format(d)
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
 }
 
 // "12 - 18 maja 2026" lub "27 kwi - 3 maja 2026" gdy tydzień łapie dwa miesiące.

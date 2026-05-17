@@ -104,7 +104,7 @@ export default async function TeachersPage() {
                     {emails[r.teacher_id] ?? '—'}
                   </p>
                   {r.message && (
-                    <p className="mt-1 text-sm text-slate-700">„{r.message}"</p>
+                    <p className="mt-1 text-sm text-slate-700">„{r.message}”</p>
                   )}
                   <p className="mt-1 text-xs text-slate-500">
                     Wysłano: {new Date(r.created_at).toLocaleDateString('pl-PL')}
