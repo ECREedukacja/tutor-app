@@ -304,7 +304,7 @@ export function TeacherAssignmentDetail({
             <p className="text-sm text-indigo-900">
               ✨ AI oceniło tę pracę. Wszystkie pola poniżej są wstępnie wypełnione
               sugestiami AI — możesz je zaakceptować, edytować lub odrzucić.
-              Nic nie jest zapisane, dopóki nie klikniesz „Oceń pracę".
+              Nic nie jest zapisane, dopóki nie klikniesz „Oceń pracę”.
             </p>
           ) : aiInProgress ? (
             <p className="text-sm text-indigo-900">

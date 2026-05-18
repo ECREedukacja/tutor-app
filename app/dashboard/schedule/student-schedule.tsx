@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useStoredFlag, useStoredJSON } from '@/lib/use-storage'
 import {
   LESSON_MINUTES,
   LESSON_SPAN,
@@ -53,6 +54,19 @@ const CANCEL_BY_STUDENT_MIN_MS = 24 * 60 * 60 * 1000
 const FILTER_STORAGE_KEY = 'schedule:hiddenTeacherIds'
 const ONLY_MINE_STORAGE_KEY = 'schedule:onlyMyLessons'
 
+// Helpery „ile do startu lekcji" — wyjęte z komponentu, żeby react-hooks/purity
+// nie flagowało Date.now() w render. Hydration-safe: różnica „teraz" SSR↔CSR
+// to milisekundy, a progi to 24 h.
+function msUntilStart(startIso: string): number {
+  return new Date(startIso).getTime() - Date.now()
+}
+function canStudentReschedule(startIso: string): boolean {
+  return msUntilStart(startIso) > RESCHEDULE_BY_STUDENT_MIN_MS
+}
+function canStudentCancel(startIso: string): boolean {
+  return msUntilStart(startIso) > CANCEL_BY_STUDENT_MIN_MS
+}
+
 export function StudentSchedule({
   studentId,
   teachers,
@@ -65,44 +79,36 @@ export function StudentSchedule({
   const [slots, setSlots] = useState<Availability[]>([])
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [proposals, setProposals] = useState<Proposal[]>([])
-  const [loading, setLoading] = useState(true)
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
-  const [filterReady, setFilterReady] = useState(false)
+  // loading = derived: true do pierwszego loaded LUB w trakcie kolejnego fetcha.
+  // useTransition zamiast jawnego setLoading(true) w load — żeby load() nie
+  // zawierał synchronicznego setState (eslint react-hooks/set-state-in-effect).
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [loadPending, startLoad] = useTransition()
+  const loading = !hasLoadedOnce || loadPending
+
+  // Filtr nauczycieli (hiddenIds) i toggle "tylko moje lekcje" — odczyt/zapis
+  // do localStorage przez useStoredJSON/useStoredFlag (useSyncExternalStore).
+  // Zero setState w useEffect, zero hydration mismatch.
+  const [hiddenArr, setHiddenArr] = useStoredJSON<string[]>(
+    FILTER_STORAGE_KEY,
+    [],
+    'local',
+  )
+  const hiddenIds = useMemo(() => new Set(hiddenArr), [hiddenArr])
+  const setHiddenIds = useCallback(
+    (next: Set<string>) => setHiddenArr(Array.from(next)),
+    [setHiddenArr],
+  )
+  const [onlyMine, setOnlyMine] = useStoredFlag(
+    ONLY_MINE_STORAGE_KEY,
+    false,
+    'local',
+  )
 
   const [bookModal, setBookModal] = useState<Availability | null>(null)
   const [lessonModal, setLessonModal] = useState<Lesson | null>(null)
   const [rescheduleModal, setRescheduleModal] = useState<Lesson | null>(null)
   const [cancelModal, setCancelModal] = useState<Lesson | null>(null)
-  const [onlyMine, setOnlyMine] = useState(false)
-
-  // Filtr nauczycieli — czytamy z localStorage. Robimy to w useEffect, żeby
-  // uniknąć hydration mismatch.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(FILTER_STORAGE_KEY)
-      if (raw) {
-        const arr = JSON.parse(raw) as string[]
-        setHiddenIds(new Set(arr))
-      }
-      setOnlyMine(localStorage.getItem(ONLY_MINE_STORAGE_KEY) === '1')
-    } catch {
-      // ignorujemy — błędny JSON traktujemy jako "nic nie schowane"
-    }
-    setFilterReady(true)
-  }, [])
-
-  useEffect(() => {
-    if (!filterReady) return
-    localStorage.setItem(
-      FILTER_STORAGE_KEY,
-      JSON.stringify(Array.from(hiddenIds)),
-    )
-  }, [hiddenIds, filterReady])
-
-  useEffect(() => {
-    if (!filterReady) return
-    localStorage.setItem(ONLY_MINE_STORAGE_KEY, onlyMine ? '1' : '0')
-  }, [onlyMine, filterReady])
 
   const teacherById = useMemo(() => {
     const m = new Map<string, TeacherInfo>()
@@ -113,50 +119,51 @@ export function StudentSchedule({
   const teacherIds = useMemo(() => teachers.map((t) => t.id), [teachers])
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
 
-  const load = useCallback(async () => {
-    if (teacherIds.length === 0) {
-      setSlots([])
-      setLessons([])
-      setProposals([])
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    const [
-      { data: slotsData },
-      { data: lessonsData },
-      { data: proposalsData },
-    ] = await Promise.all([
-      supabase
-        .from('availability')
-        .select('id, teacher_id, start_at, duration_minutes')
-        .in('teacher_id', teacherIds)
-        .gte('start_at', weekStart.toISOString())
-        .lt('start_at', weekEnd.toISOString())
-        .order('start_at'),
-      supabase
-        .from('lessons')
-        .select(
-          'id, teacher_id, start_at, duration_minutes, mode, recurring_lesson_id',
-        )
-        .eq('student_id', studentId)
-        .eq('status', 'scheduled')
-        .gte('start_at', weekStart.toISOString())
-        .lt('start_at', weekEnd.toISOString())
-        .order('start_at'),
-      supabase
-        .from('lesson_proposals')
-        .select(
-          'id, kind, teacher_id, student_id, proposer_id, original_lesson_id, start_at, duration_minutes, mode, status, created_at, original_lesson:lessons!lesson_proposals_original_lesson_id_fkey(start_at, mode)',
-        )
-        .eq('student_id', studentId)
-        .order('created_at', { ascending: false }),
-    ])
-    setSlots((slotsData ?? []) as Availability[])
-    setLessons((lessonsData ?? []) as Lesson[])
-    setProposals((proposalsData ?? []) as unknown as Proposal[])
-    setLoading(false)
-  }, [supabase, studentId, teacherIds, weekStart, weekEnd])
+  const load = useCallback(() => {
+    startLoad(async () => {
+      if (teacherIds.length === 0) {
+        setSlots([])
+        setLessons([])
+        setProposals([])
+        setHasLoadedOnce(true)
+        return
+      }
+      const [
+        { data: slotsData },
+        { data: lessonsData },
+        { data: proposalsData },
+      ] = await Promise.all([
+        supabase
+          .from('availability')
+          .select('id, teacher_id, start_at, duration_minutes')
+          .in('teacher_id', teacherIds)
+          .gte('start_at', weekStart.toISOString())
+          .lt('start_at', weekEnd.toISOString())
+          .order('start_at'),
+        supabase
+          .from('lessons')
+          .select(
+            'id, teacher_id, start_at, duration_minutes, mode, recurring_lesson_id',
+          )
+          .eq('student_id', studentId)
+          .eq('status', 'scheduled')
+          .gte('start_at', weekStart.toISOString())
+          .lt('start_at', weekEnd.toISOString())
+          .order('start_at'),
+        supabase
+          .from('lesson_proposals')
+          .select(
+            'id, kind, teacher_id, student_id, proposer_id, original_lesson_id, start_at, duration_minutes, mode, status, created_at, original_lesson:lessons!lesson_proposals_original_lesson_id_fkey(start_at, mode)',
+          )
+          .eq('student_id', studentId)
+          .order('created_at', { ascending: false }),
+      ])
+      setSlots((slotsData ?? []) as Availability[])
+      setLessons((lessonsData ?? []) as Lesson[])
+      setProposals((proposalsData ?? []) as unknown as Proposal[])
+      setHasLoadedOnce(true)
+    })
+  }, [startLoad, supabase, studentId, teacherIds, weekStart, weekEnd])
 
   useEffect(() => {
     load()
@@ -270,12 +277,10 @@ export function StudentSchedule({
   }, [slots, lessons, weekStart, teacherById, hiddenIds, onlyMine])
 
   const toggleTeacher = (id: string) => {
-    setHiddenIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+    const next = new Set(hiddenIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setHiddenIds(next)
   }
 
   const showAll = () => setHiddenIds(new Set())
@@ -357,7 +362,7 @@ export function StudentSchedule({
               type="button"
               role="switch"
               aria-checked={onlyMine}
-              onClick={() => setOnlyMine((v) => !v)}
+              onClick={() => setOnlyMine(!onlyMine)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 onlyMine ? 'bg-indigo-600' : 'bg-slate-300'
               }`}
@@ -587,9 +592,8 @@ function LessonModal({
   onCancel: () => void
 }) {
   const d = new Date(lesson.start_at)
-  const msUntil = d.getTime() - Date.now()
-  const canReschedule = msUntil > RESCHEDULE_BY_STUDENT_MIN_MS
-  const canCancel = msUntil > CANCEL_BY_STUDENT_MIN_MS
+  const canReschedule = canStudentReschedule(lesson.start_at)
+  const canCancel = canStudentCancel(lesson.start_at)
   const teacherFullName = teacher
     ? `${teacher.first_name} ${teacher.last_name}`
     : 'nauczyciela'

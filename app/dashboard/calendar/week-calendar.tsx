@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useSyncExternalStore } from 'react'
 import {
   DAY_NAMES_SHORT,
   HOURS_END,
@@ -14,6 +14,32 @@ import {
   gridRowFor,
   isSameDay,
 } from '@/lib/calendar'
+
+// Bieżąca minuta przez useSyncExternalStore — bez setState w useEffect.
+// SSR snapshot = null (linia „teraz" się nie rysuje), CSR snapshot = Date.now()
+// cachowany w module i odświeżany co minutę przez subskrybowany interval.
+let _cachedNowMs: number | null = null
+
+function useNowMinute(): Date | null {
+  const ms = useSyncExternalStore(
+    (onChange) => {
+      // Pierwsze wybudzenie po mount — jeśli nie mamy jeszcze próbki, weź ją
+      // i wymuś re-render (callback). Następnie aktualizuj co 60 s.
+      if (_cachedNowMs === null) {
+        _cachedNowMs = Date.now()
+        onChange()
+      }
+      const id = setInterval(() => {
+        _cachedNowMs = Date.now()
+        onChange()
+      }, 60_000)
+      return () => clearInterval(id)
+    },
+    () => _cachedNowMs,
+    () => null,
+  )
+  return ms === null ? null : new Date(ms)
+}
 
 export type CalendarBlock = {
   id: string
@@ -34,15 +60,7 @@ type Props = {
 const ROW_HEIGHT_PX = 14 // 1 slot = 15 min. 60 slotów * 14px ≈ 840px wysokości
 
 export function WeekCalendar({ weekStart, blocks, onEmptyClick }: Props) {
-  const [now, setNow] = useState<Date | null>(null)
-
-  // Aktualną godzinę renderujemy tylko po stronie klienta, żeby uniknąć
-  // hydration mismatch (SSR vs CSR dają różne wartości).
-  useEffect(() => {
-    setNow(new Date())
-    const t = setInterval(() => setNow(new Date()), 60_000)
-    return () => clearInterval(t)
-  }, [])
+  const now = useNowMinute()
 
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),

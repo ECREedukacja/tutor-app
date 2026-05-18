@@ -1,7 +1,14 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { markAllNotificationsRead, markNotificationRead } from './actions'
 
@@ -133,18 +140,27 @@ export function Notifications({ userId }: { userId: string }) {
   // <audio> krótkim play()+pause() przy pierwszym kliku/keydownie/dotknięciu.
   const [audioUnlocked, setAudioUnlocked] = useState(false)
 
-  const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('notifications')
-      .select(
-        'id, user_id, type, title, body, link, read_at, created_at',
-      )
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(FETCH_LIMIT)
-    setItems((data ?? []) as Notification[])
-    initialLoadDoneRef.current = true
-  }, [supabase, userId])
+  // load() opakowane w startTransition — eslint
+  // (react-hooks/set-state-in-effect) flaguje call-site, jeśli wewnątrz jest
+  // synchronicznie wywoływane setState. Tu setState jest dopiero po await, ale
+  // statyczna analiza tego nie widzi. startTransition izoluje setState w
+  // niskopriorytetowej kolejce — z punktu widzenia callera load() to czysty
+  // side-effect (zero setState w bezpośrednim stack).
+  const [, startLoad] = useTransition()
+  const load = useCallback(() => {
+    startLoad(async () => {
+      const { data } = await supabase
+        .from('notifications')
+        .select(
+          'id, user_id, type, title, body, link, read_at, created_at',
+        )
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(FETCH_LIMIT)
+      setItems((data ?? []) as Notification[])
+      initialLoadDoneRef.current = true
+    })
+  }, [supabase, userId, startLoad])
 
   useEffect(() => {
     load()

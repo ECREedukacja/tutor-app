@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MathContent } from '@/components/math-content'
 import { MathEditor } from '@/components/math-editor'
+import { useStoredFlag } from '@/lib/use-storage'
 import { saveStudentAnswer, submitAssignment } from '../actions'
 import {
   STATUS_LABELS,
@@ -295,33 +296,10 @@ function HintBlock({
   hint: string
 }) {
   const storageKey = `tutor:hint:${assignmentId}:${taskId}`
-  const [open, setOpen] = useState(false)
-
-  // Po hydracji odczyt z sessionStorage. Robimy to w efekcie, żeby SSR
-  // i pierwszy klient render miały spójny output (zwinięty).
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      if (sessionStorage.getItem(storageKey) === '1') setOpen(true)
-    } catch {
-      // sessionStorage może być zablokowany w trybie prywatnym — ignorujemy.
-    }
-  }, [storageKey])
-
-  function toggle() {
-    setOpen((prev) => {
-      const next = !prev
-      try {
-        if (typeof window !== 'undefined') {
-          if (next) sessionStorage.setItem(storageKey, '1')
-          else sessionStorage.removeItem(storageKey)
-        }
-      } catch {
-        // ignorujemy
-      }
-      return next
-    })
-  }
+  // SSR snapshot = false (zwinięty), CSR snapshot = wartość ze sessionStorage.
+  // useStoredFlag używa useSyncExternalStore — bez setState w useEffect.
+  const [open, setOpen] = useStoredFlag(storageKey, false, 'session')
+  const toggle = () => setOpen(!open)
 
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50">
